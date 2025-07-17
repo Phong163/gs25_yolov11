@@ -1,0 +1,6 @@
+opencv-python
+ultralytics
+onnx
+onnxruntime-gpu
+lap
+cython_bbox
