@@ -3,4 +3,6 @@ ultralytics
 onnxruntime-gpu
 lap
 cython_bbox
+gdown
+tensorboard
 confluent-kafka==2.5.0
