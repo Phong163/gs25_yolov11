@@ -1,15 +1,16 @@
 import datetime
+import json
 from venv import logger
 import numpy as np
 import pytz
 import requests
 import torch
 from ultralytics.utils.metrics import box_iou
-
+from confluent_kafka import Producer
 
 import logging
 import logging.handlers
-logger = logging.getLogger('metric_8_9')
+logger = logging.getLogger('metric_8_9_gs25')
 
 def setup_logger(
     logger_name='metric_8_9_gs25',
@@ -76,26 +77,47 @@ def rescale(frame, img_size, x_min, y_min, x_max, y_max):
     scale_y = frame.shape[0] / img_size
     return x_min * scale_x, y_min * scale_y, x_max * scale_x, y_max * scale_y
 
-def send_number_to_backend(last_plate_number, time, base_url="http://10.0.1.22:8000"):
-    data = {
-        "box_id": "214234352",
-        "customer": "17_7_2025_05_19_34236534",
-        "checkout_to_exit_time": time, # time dạng float tính theo giây (12.4s)
+def send_time_to_kafka(type, box_id, customer_id, time, bootstrap_servers="192.168.100.48:9092", topic="metric89_gs25_data"):
+    # Dữ liệu cần gửi
+    time = round(time, 1)
+    if type == 2:
+        data = {
+            "box_id": box_id,
+            "customer_id": customer_id,
+            "checkout_to_exit_time": time,  # time dạng float tính theo giây (12.4s)
+        }
+    else:
+        data = {
+            "box_id": box_id,
+            "customer_id": customer_id,
+            "queue_to_counter_time": time,  # time dạng float tính theo giây (12.4s)
+        }
+
+    # Cấu hình cho Kafka Producer
+    conf = {
+        'bootstrap.servers': bootstrap_servers,
+        'client.id': 'python-producer'
     }
-    url = f"{base_url}/api/v1/receive-number-of-hanger"
-    headers = {'Content-Type': 'application/json'}
-    try:
-        response = requests.post(url, json=data, headers=headers)
-        if response.status_code in (200, 201):
-            try:
-                result = response.json()
-                logger.info(f"Thành công gửi số: {last_plate_number}, Timestamp: {time}")
-            except ValueError:
-                logger.info(f"Thành công gửi số: {last_plate_number}, Timestamp: {time}")
+
+    # Khởi tạo Producer
+    producer = Producer(conf)
+
+    def delivery_report(err, msg):
+        """Hàm callback để báo cáo trạng thái gửi tin nhắn"""
+        if err is not None:
+            logger.error(f"Gửi tin nhắn thất bại: {err}")
         else:
-            logger.error(f"Lỗi API: {response.status_code}, {response.text}")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Yêu cầu API thất bại: {str(e)}")
+            logger.info(f"Thành công gửi Type: {type}, custormer: {customer_id}, Timestamp: {time}, Topic: {msg.topic()}, Partition: {msg.partition()}, Offset: {msg.offset()}")
+
+    try:
+        # Chuyển dữ liệu thành JSON string
+        message = json.dumps(data)
+        # Gửi tin nhắn đến topic Kafka
+        producer.produce(topic, value=message.encode('utf-8'), callback=delivery_report)
+        # Đợi cho đến khi tất cả tin nhắn được gửi
+        producer.flush()
+    except Exception as e:
+        logger.error(f"Lỗi khi gửi tin nhắn đến Kafka: {str(e)}")
         
 def extract_feature(extractor, image, box):
     x1, y1, x2, y2 = box

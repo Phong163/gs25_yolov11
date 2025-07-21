@@ -6,14 +6,15 @@ from ultralytics import YOLO
 import time
 import threading
 from tracker.tracker import BYTETracker
-from utils import get_zone_coords, is_box_in_zone, rescale, extract_feature, cosine_similarity, setup_logger
+from utils import get_zone_coords, is_box_in_zone, rescale, extract_feature, cosine_similarity, setup_logger, send_time_to_kafka
 from config.params import camera_configs
 from rtsp_stream import RTSPStream
 from torchreid.utils import FeatureExtractor
 logger = setup_logger()
+from datetime import datetime
 
 class CustomerTracker:
-    def __init__(self, camera_id, yolo_model_path, osnet_model_path, output_path, size=480, save_video=False):
+    def __init__(self, camera_id, yolo_model_path, osnet_model_path, output_path, size=480, save_video=False, send_api=False):
         """Initialize the CustomerTracker with necessary components."""
         if camera_id not in camera_configs:
             raise ValueError(f"No configuration found for camera_id {camera_id}")
@@ -34,6 +35,7 @@ class CustomerTracker:
         self.output_path = output_path
         self.size = size
         self.save_video = save_video
+        self.send_api = send_api
         self.track_old_customer = []
 
         # Initialize RTSP stream
@@ -132,16 +134,18 @@ class CustomerTracker:
                     for track_id_person, info in self.track_person.items():
                         if track_id_person not in self.track_old_customer and "feature" in info:
                             sim = cosine_similarity(feature, info["feature"])
-                            if sim > 0.75:
+                            if sim > 0.7:
                                 matched_id = track_id_person
 
                     if matched_id is not None:
                         self.track_person[track_id] = self.track_person[matched_id].copy()
                         self.track_person[track_id]["last_seen_frame"] = self.current_frame
                         self.track_person[track_id]["feature"] = feature
+                        self.track_person[matched_id]["reid"] = True
                     else:
+                        date_time = datetime.now().strftime("%d-%m-%Y_%H-%M")
                         self.track_person[track_id] = {
-                            "name_track_id": track_id,
+                            "name_track_id": f"{track_id}_{date_time}_{self.camera_id}_{int(tlbr[0])}-{int(tlbr[1])}",
                             "start_time_1": time.time(),
                             "start_time_2": time.time(),
                             "stopped_1": False,
@@ -150,16 +154,16 @@ class CustomerTracker:
                             "total_time_2": 0,
                             "last_seen_frame": self.current_frame,
                             "feature": feature,
+                            "reid" : False,
                         }
                 else:
                     self.track_person[track_id]["last_seen_frame"] = self.current_frame
 
                 # Update timing
-                if is_box_in_zone(box, zone_coords_2, 0.07) or (self.zone_5 and is_box_in_zone(box, zone_coords_5, 0.07)):
-                    self.track_person[track_id]["stopped_1"] = True
-
                 if not self.track_person[track_id]["stopped_1"]:
                     self.track_person[track_id]["total_time_1"] = time.time() - self.track_person[track_id]["start_time_1"]
+                if is_box_in_zone(box, zone_coords_2, 0.07) or (self.zone_5 and is_box_in_zone(box, zone_coords_5, 0.07)):
+                    self.track_person[track_id]["stopped_1"] = True
 
                 if not self.track_person[track_id]["stopped_2"]:
                     if self.track_person[track_id]["total_time_2"] == 0:
@@ -167,6 +171,7 @@ class CustomerTracker:
                     self.track_person[track_id]["total_time_2"] = time.time() - self.track_person[track_id]["start_time_2"]
 
                 if self.track_person[track_id]["stopped_1"] and self.track_person[track_id]["stopped_2"]:
+                    
                     self.track_person[track_id]["stopped_2"] = stopped_2
 
                 if self.save_video:
@@ -186,8 +191,17 @@ class CustomerTracker:
         self.track_old_customer = track_customer
 
         # Remove old tracks
-        to_delete = [t_id for t_id, info in self.track_person.items() if self.current_frame - info["last_seen_frame"] > 100]
-        for t_id in to_delete:
+        to_remove = []
+        for t_id, info in self.track_person.items():
+            if self.current_frame - info["last_seen_frame"] > 100:
+                if info["stopped_1"] and not info["reid"] and self.send_api:
+                    send_time_to_kafka(1, self.camera_id, info["name_track_id"], info["total_time_1"])
+                if info["total_time_2"] > 0 and not info["reid"] and self.send_api:
+                    send_time_to_kafka(2, self.camera_id, info["name_track_id"], info["total_time_2"])
+                to_remove.append(t_id)
+
+        # Xóa các track sau khi lặp
+        for t_id in to_remove:
             del self.track_person[t_id]
 
         # Draw zone
@@ -238,9 +252,13 @@ def parse_args():
                         help='Size for resizing frames')
     parser.add_argument('--save_video', action='store_true',
                         help='Whether to save the output video')
+    parser.add_argument('--show_video', action='store_true',
+                        help='Whether to save the output video')
+    parser.add_argument('--send_api', action='store_true',
+                        help='Whether to save the output video')
     return parser.parse_args()
 
-def run_tracker_for_camera(camera_id, yolo_model_path, osnet_model_path, output_path, size, save_video):
+def run_tracker_for_camera(camera_id, yolo_model_path, osnet_model_path, output_path, size, save_video, send_api):
     """Run a CustomerTracker for a specific camera in a separate thread."""
     try:
         tracker = CustomerTracker(
@@ -249,7 +267,8 @@ def run_tracker_for_camera(camera_id, yolo_model_path, osnet_model_path, output_
             osnet_model_path=osnet_model_path,
             output_path=output_path,
             size=size,
-            save_video=save_video
+            save_video=save_video,
+            send_api = send_api
         )
         tracker.run()
     except Exception as e:
@@ -266,7 +285,7 @@ if __name__ == "__main__":
     for camera_id in camera_ids:
         thread = threading.Thread(
             target=run_tracker_for_camera,
-            args=(camera_id, args.yolo_model, args.osnet_model, args.output, args.imgsz, args.save_video)
+            args=(camera_id, args.yolo_model, args.osnet_model, args.output, args.imgsz, args.save_video, args.send_api)
         )
         threads.append(thread)
         thread.start()
