@@ -1,0 +1,6 @@
+opencv-python
+ultralytics
+onnxruntime-gpu
+lap
+cython_bbox
+confluent-kafka==2.5.0
