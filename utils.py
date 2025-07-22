@@ -105,9 +105,9 @@ def send_time_to_kafka(type, box_id, customer_id, time, bootstrap_servers="192.1
     def delivery_report(err, msg):
         """Hàm callback để báo cáo trạng thái gửi tin nhắn"""
         if err is not None:
-            logger.error(f"Gửi tin nhắn thất bại: {err}")
+            logger.error(f"Gui tin nhan that bai: {err}")
         else:
-            logger.info(f"Thành công gửi Type: {type}, custormer: {customer_id}, Timestamp: {time}, Topic: {msg.topic()}, Partition: {msg.partition()}, Offset: {msg.offset()}")
+            logger.info(f"Thanh cong gui Type: {type}, custormer: {customer_id}, Timestamp: {time}, Topic: {msg.topic()}, Partition: {msg.partition()}, Offset: {msg.offset()}")
 
     try:
         # Chuyển dữ liệu thành JSON string
@@ -117,7 +117,7 @@ def send_time_to_kafka(type, box_id, customer_id, time, bootstrap_servers="192.1
         # Đợi cho đến khi tất cả tin nhắn được gửi
         producer.flush()
     except Exception as e:
-        logger.error(f"Lỗi khi gửi tin nhắn đến Kafka: {str(e)}")
+        logger.error(f"Loi khi gui tin nhan den Kafka: {str(e)}")
         
 def extract_feature(extractor, image, box):
     x1, y1, x2, y2 = box
