@@ -14,12 +14,11 @@ class RTSPStream:
         self.thread.daemon = True
 
     def read_stream(self):
-        max_retries = 5
         retries = 0
-        while self.running and retries < max_retries:
+        while self.running:
             ret, frame = self.cap.read()
             if not ret:
-                print(f"Cam {self.cam_id}: Don't read frame, try reconnect... ({retries + 1}/{max_retries})")
+                print(f"Cam {self.cam_id}: Don't read frame, try reconnect... ({retries + 1})")
                 time.sleep(2)
                 self.cap.release()
                 self.cap = cv2.VideoCapture(self.url)
