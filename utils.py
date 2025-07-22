@@ -123,9 +123,13 @@ def extract_feature(extractor, image, box):
     x1, y1, x2, y2 = box
     crop = image[y1:y2, x1:x2]
     if crop.size > 0:
-        feature = extractor(crop)
-        return feature.cpu().numpy(),crop
-    return None,None
+        crop_tensor = torch.from_numpy(crop).permute(2, 0, 1).float().unsqueeze(0)
+        if torch.cuda.is_available():
+            crop_tensor = crop_tensor.cuda()
+        feature = extractor(crop_tensor)
+        feature = feature.cpu().detach().numpy()
+        return feature, crop
+    return None, None
 
 def cosine_similarity(feat1, feat2):
     # Làm phẳng mảng nếu là 2D
