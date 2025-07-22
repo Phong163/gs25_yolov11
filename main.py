@@ -1,6 +1,7 @@
 import argparse
 import cv2
 import numpy as np
+import pytz
 import torch
 from ultralytics import YOLO
 import time
@@ -27,7 +28,7 @@ class CustomerTracker:
         self.zone_2 = config["zone_2"]
         self.zone_3 = config["zone_3"]
         self.zone_4 = config["zone_4"]
-        self.zone_5 = config.get("zone_5", [])  # Use get to handle missing zone_5
+        self.zone_5 = config["zone_5"]
         self.track_person = config["track_person"]
         self.current_frame = config["current_frame"]
         self.yolo_model_path = yolo_model_path
@@ -84,7 +85,7 @@ class CustomerTracker:
         zone_coords_2 = get_zone_coords(annotated_frame, self.zone_2)
         zone_coords_3 = get_zone_coords(annotated_frame, self.zone_3)
         zone_coords_4 = get_zone_coords(annotated_frame, self.zone_4)
-        zone_coords_5 = get_zone_coords(annotated_frame, self.zone_5) if self.zone_5 else []
+        zone_coords_5 = get_zone_coords(annotated_frame, self.zone_5)
 
         # Perform detection
         results = self.model.predict(frame_resize, stream=True, conf=0.6, iou=0.6, verbose=False)
@@ -92,11 +93,11 @@ class CustomerTracker:
         for result in results:
             boxes = result.boxes
             for box in boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0].cpu())
+                x1, y1, x2, y2 = map(int, box.xyxy[0].cpu())  # Chuyển về CPU
                 x_min_rescaled, y_min_rescaled, x_max_rescaled, y_max_rescaled = rescale(
                     annotated_frame, self.size, x1, y1, x2, y2
                 )
-                conf = box.conf[0].cpu().item()
+                conf = box.conf[0].cpu().item()  # Chuyển về CPU
                 cls = int(box.cls[0].cpu())
                 detections.append([x_min_rescaled, y_min_rescaled, x_max_rescaled, y_max_rescaled, conf, cls])
 
@@ -143,7 +144,7 @@ class CustomerTracker:
                         self.track_person[track_id]["feature"] = feature
                         self.track_person[matched_id]["reid"] = True
                     else:
-                        date_time = datetime.now().strftime("%d-%m-%Y_%H-%M")
+                        date_time = datetime.now(pytz.timezone("Asia/Ho_Chi_Minh")).strftime("%d-%m-%Y_%H-%M")
                         self.track_person[track_id] = {
                             "name_track_id": f"{track_id}_{date_time}_{self.camera_id}_{int(tlbr[0])}-{int(tlbr[1])}",
                             "start_time_1": time.time(),
@@ -162,7 +163,7 @@ class CustomerTracker:
                 # Update timing
                 if not self.track_person[track_id]["stopped_1"]:
                     self.track_person[track_id]["total_time_1"] = time.time() - self.track_person[track_id]["start_time_1"]
-                if is_box_in_zone(box, zone_coords_2, 0.07) or (self.zone_5 and is_box_in_zone(box, zone_coords_5, 0.07)):
+                if is_box_in_zone(box, zone_coords_2, 0.07) or (self.zone_5 and is_box_in_zone(box, zone_coords_5, 0.03)):
                     self.track_person[track_id]["stopped_1"] = True
 
                 if not self.track_person[track_id]["stopped_2"]:
@@ -178,7 +179,7 @@ class CustomerTracker:
                     # Draw tracking information
                     cv2.putText(
                         annotated_frame,
-                        f"Person_ID: {self.track_person[track_id]['name_track_id']}, Time_1: {self.track_person[track_id]['total_time_1']:.1f}s, Time_2: {self.track_person[track_id]['total_time_2']:.1f}s",
+                        f" Time_1: {self.track_person[track_id]['total_time_1']:.1f}s, Time_2: {self.track_person[track_id]['total_time_2']:.1f}s",
                         (box[0], box[1] - 10),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         1.2,
@@ -251,8 +252,6 @@ def parse_args():
     parser.add_argument('--imgsz', type=int, default=480,
                         help='Size for resizing frames')
     parser.add_argument('--save_video', action='store_true',
-                        help='Whether to save the output video')
-    parser.add_argument('--show_video', action='store_true',
                         help='Whether to save the output video')
     parser.add_argument('--send_api', action='store_true',
                         help='Whether to save the output video')
