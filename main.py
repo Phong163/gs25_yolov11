@@ -92,12 +92,12 @@ class CustomerTracker:
         for result in results:
             boxes = result.boxes
             for box in boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                x1, y1, x2, y2 = map(int, box.xyxy[0].cpu())
                 x_min_rescaled, y_min_rescaled, x_max_rescaled, y_max_rescaled = rescale(
                     annotated_frame, self.size, x1, y1, x2, y2
                 )
-                conf = box.conf[0]
-                cls = int(box.cls[0])
+                conf = box.conf[0].cpu().item()
+                cls = int(box.cls[0].cpu())
                 detections.append([x_min_rescaled, y_min_rescaled, x_max_rescaled, y_max_rescaled, conf, cls])
 
         detections = np.array(detections) if detections else np.empty((0, 6))
